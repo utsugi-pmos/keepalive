@@ -1,0 +1,84 @@
+#!/bin/sh
+# Opens the always-alive applications ON UNLOCK, never before.
+#
+# WHY THE SESSION START IS NOT GOOD ENOUGH
+# -----------------------------------
+# The previous version of this hooked into ~/.config/autostart, and
+# autostart runs at the start of the SESSION -- which is BEFORE you enter the PIN.
+# Measured in this phone's log:
+#
+#     23:31:16  the session starts and loads the lock (lockscreen/Keypad.qml)
+#     23:31:28  keepalive-launch: org.kde.plasma.dialer: opened
+#
+# Twelve seconds, with the phone locked. Opening applications behind the
+# lock screen is not acceptable, and THERE IS NO DELAY THAT FIXES IT: the
+# trigger was the wrong one. Besides, it left the desktop without its two bars.
+#
+# So this script starts with the session but OPENS NOTHING: it stays
+# listening, and only acts when the lock is lifted.
+#
+# HOW IT KNOWS IT HAS BEEN UNLOCKED
+# -----------------------------------
+# Asking is NOT possible, and it is measured: on this phone
+# 'org.freedesktop.ScreenSaver.GetActive' returns true ALWAYS, also with the
+# session in use, and 'loginctl show-session -p LockedHint' says 'no' even with the
+# lock set. Both of them lie.
+#
+# What does work is the SIGNAL. It is the same one our smart-unlockd uses,
+# where it is commented word for word: "an unlock (active -> false) is the
+# 'I just proved it's me'". That is, ActiveChanged with false.
+#
+# And it is listened to with 'busctl --user monitor', not with dbus-monitor: dbus-monitor does not
+# capture other people's traffic on the session bus (it stays at its header, ~390
+# bytes, no matter how much passes). Modern D-Bus restricts eavesdropping.
+#
+# ONLY THE FIRST TIME
+# -------------------
+# On the first unlock it opens what is missing and finishes. The following ones do
+# nothing: the applications are already alive, which is exactly what the setting is about.
+# And if it never gets unlocked, it never opens anything -- which is exactly what is
+# wanted.
+set -eu
+
+LAUNCHER="/usr/bin/keepalive-launch"
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
+
+command -v busctl >/dev/null 2>&1 || { echo "no busctl: I cannot wait for the unlock"; exit 0; }
+[ -x "$LAUNCHER" ] || { echo "$LAUNCHER is not there; there is nothing to open"; exit 0; }
+
+echo "waiting for the unlock; until then nothing is opened"
+
+# The two routes of the same locker: some versions publish the service with the
+# freedesktop name and others with the KDE one. The smart-unlock daemon
+# subscribes to both for the same reason.
+#
+# The awk is a minimal state machine because busctl emits each message in
+# several lines: first the header with the Member and then the argument.
+# fflush() is not decoration: without it, awk buffers and the notice would arrive late or never.
+busctl --user monitor \
+	--match "type='signal',interface='org.freedesktop.ScreenSaver',member='ActiveChanged'" \
+	--match "type='signal',interface='org.kde.screensaver',member='ActiveChanged'" 2>/dev/null |
+awk '
+	/Member=ActiveChanged/ { visto = 1; next }
+	visto && /BOOLEAN/ {
+		print (index($0, "false") ? "UNLOCK" : "LOCK")
+		fflush()
+		visto = 0
+	}
+' |
+while IFS= read -r event; do
+	[ "$event" = UNLOCK ] || continue
+	echo "unlocked: opening the ones that are missing"
+	"$LAUNCHER" || true
+
+	# And close the listener by hand. Leaving the loop is not enough: the script stays
+	# waiting for the rest of the pipeline to finish, and busctl never
+	# finishes, so the unit was left 'active' forever with a process
+	# listening for nothing. It is killed by exact name and limited to our
+	# children; '-x' compares the process name, not the command line, which is
+	# how these things end up killing themselves.
+	pkill -P $$ -x busctl 2>/dev/null || true
+	break
+done

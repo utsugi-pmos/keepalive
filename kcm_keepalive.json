@@ -1,0 +1,20 @@
+{
+    "KPlugin": {
+        "Category": "Applications",
+        "Description": "Apps that minimize instead of closing",
+        "Description[es]": "Aplicaciones que se minimizan en vez de cerrarse",
+        "FormFactors": [
+            "handset",
+            "tablet"
+        ],
+        "Icon": "preferences-system-windows",
+        "License": "GPL-2.0-or-later",
+        "Name": "Always-alive apps",
+        "Name[es]": "Apps siempre vivas",
+        "Website": "https://github.com/cidwel/vayu-postmarketos"
+    },
+    "X-KDE-Keywords": "apps,applications,tasks,close,minimize,memory,fast",
+    "X-KDE-Keywords[es]": "apps,aplicaciones,tareas,cerrar,minimizar,memoria,rapido",
+    "X-KDE-System-Settings-Parent-Category": "applications",
+    "X-KDE-Weight": 20
+}

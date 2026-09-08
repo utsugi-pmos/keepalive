@@ -1,0 +1,13 @@
+[Unit]
+Description=Apps siempre vivas: abrirlas al desbloquear, nunca antes
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/keepalive-wait-for-unlock
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target

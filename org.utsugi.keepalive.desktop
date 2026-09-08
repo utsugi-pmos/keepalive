@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Always-alive apps
+Name[es]=Apps siempre vivas
+GenericName=Apps that do not close
+GenericName[es]=Aplicaciones que no se cierran
+Comment=Choose which apps minimize instead of closing
+Comment[es]=Elige qué aplicaciones se minimizan en vez de cerrarse
+Exec=keepalive
+Icon=org.utsugi.keepalive
+Terminal=false
+Categories=Qt;KDE;Settings;
+X-KDE-FormFactors=tablet,handset
+Keywords=apps;applications;tasks;close;minimize;memory;
+Keywords[es]=apps;aplicaciones;tareas;cerrar;minimizar;memoria;
