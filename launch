@@ -1,0 +1,214 @@
+#!/bin/sh
+# Opens the applications marked as always alive, MINIMISED.
+#
+# Two uses, the same code:
+#
+#     keepalive-launch              all from the list       <- at session start
+#     keepalive-launch <app_id>...  only those             <- the module calls it
+#                                                                when marking one
+#
+# WHY IT IS NEEDED
+# ----------------
+# The task manager patch prevents an application from CLOSING, but does not
+# open it. So "always alive" only worked from the first time you
+# opened it yourself, and was lost on each reboot. This closes both ends.
+#
+# HOW THEY OPEN MINIMISED
+# -----------------------
+# There is no way to ask a Wayland application to start minimised: the
+# compositor decides. What KWin does understand is a window rule with
+#
+#     minimize=true
+#     minimizerule=3      <- 3 is "Apply initially" in kwin/src/rules.h
+#
+# which minimises the window ON CREATION and afterwards does not interfere. Verified
+# on the phone: with the rule set, 'kstart --application org.kde.angelfish'
+# leaves the process alive and the screen on the desktop.
+#
+# The rule is set JUST FOR THIS STARTUP and removed on finishing. If it
+# stayed set, opening the application yourself from the drawer -- because it
+# had crashed, for example -- would also open it minimised, and that looks
+# like the phone is unresponsive. Hence the trap: it is removed no matter what.
+#
+# HOW WE KNOW IF IT IS ALREADY OPEN
+# ---------------------------------
+# By the systemd units, not by the process name. Plasma launches each
+# application inside its own, and the .desktop identifier goes in the name:
+#
+#     app-org.kde.angelfish@57bf63...service        launched from the drawer
+#     app-flatpak-it.belloworld.mercurygram-7525941.scope    flatpak
+#     app-org.kde.spacebar.daemon@autostart.service <- CAREFUL: NOT spacebar
+#
+# That last one is the reason the comparison is anchored on '@' or on
+# '-<number>.scope' and is not a simple 'contains': the messaging daemon carries
+# the spacebar identifier inside and is not spacebar.
+set -eu
+
+LISTA="${XDG_CONFIG_HOME:-$HOME/.config}/keepaliverc"
+# The prefix does NOT start with "keepalive-" on purpose: the Preferences module
+# deletes every group starting like that each time it saves, and it would take
+# these rules down while the window has not yet appeared. With a
+# prefix of its own, each cleans up its own.
+PREFIJO="keepalive-startup-"
+
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+
+for h in qdbus6 kreadconfig6 kwriteconfig6 kstart busctl; do
+	command -v "$h" >/dev/null 2>&1 || { echo "without $h: cannot open anything"; exit 0; }
+done
+
+# --- wait for KWin -----------------------------------------------------------
+# At session start this runs before the compositor is on the bus, and a
+# rule written then is read by nobody.
+espera=0
+while [ "$espera" -lt 90 ]; do
+	qdbus6 org.kde.KWin >/dev/null 2>&1 && break
+	espera=$((espera + 1))
+	sleep 1
+done
+if [ "$espera" -ge 90 ]; then
+	echo "KWin did not appear in 90 s; opening nothing"
+	exit 0
+fi
+
+# --- and wait for the desktop to have ITS BARS ------------------------------
+# KWin being on the bus does not mean the session is up. The first
+# version started two applications four seconds after plasmashell,
+# right while it creates the status bar and the navigation bar, and the phone
+# was left WITHOUT THE TWO: plasmashell alive, not crashed (NRestarts=0), but with
+# a single window instead of three. Without a navigation bar there is no way out
+# of the application in front.
+#
+# The signal that they are done is published by the shell itself, and is the same
+# one the 'margen-barra' setting uses to read them: one object per screen under
+# /Mobile/Panels. Until it appears, nothing is started here.
+espera=0
+while [ "$espera" -lt 90 ]; do
+	busctl --user tree org.kde.plasmashell 2>/dev/null | grep -q "/Mobile/Panels/" && break
+	espera=$((espera + 1))
+	sleep 1
+done
+if [ "$espera" -ge 90 ]; then
+	echo "the desktop did not bring up its bars in 90 s; opening nothing"
+	exit 0
+fi
+
+# And a breather afterwards, because publishing the object and having the windows
+# drawn are not the same.
+sleep 5
+
+# --- the "open minimised" rules, only while this lasts -----------------------
+# Removes ALL the prefix rules, not only this batch's: if once the
+# script was killed mid-task, the rule stayed set and the application
+# would open minimised too when you open it yourself. Being called both at start
+# and at finish, each session start repairs the previous one.
+#
+# 'rules' is re-read in here instead of being saved at the start: the Preferences
+# module writes to this same file, and working on an old copy
+# would erase what it had just written.
+quitar_reglas() {
+	nuestras=""
+	otras=""
+	for r in $(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null | tr ',' ' '); do
+		case "$r" in
+			"$PREFIJO"*) nuestras="$nuestras $r" ;;
+			*) otras="$otras $r" ;;
+		esac
+	done
+
+	[ -n "$(echo $nuestras)" ] || return 0
+
+	for g in $nuestras; do
+		for k in Description minimize minimizerule wmclass wmclasscomplete wmclassmatch; do
+			kwriteconfig6 --file kwinrulesrc --group "$g" --key "$k" --delete
+		done
+	done
+	kwriteconfig6 --file kwinrulesrc --group General --key rules "$(echo $otras | tr ' ' ',')"
+	kwriteconfig6 --file kwinrulesrc --group General --key count "$(echo $otras | wc -w)"
+	qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 || true
+}
+
+trap quitar_reglas EXIT INT TERM
+quitar_reglas
+
+# --- what to open ------------------------------------------------------------
+if [ "$#" -gt 0 ]; then
+	CANDIDATAS="$*"
+else
+	CANDIDATAS="$(kreadconfig6 --file "$LISTA" --group General --key apps 2>/dev/null | tr ',' ' ')"
+fi
+
+esta_viva() {
+	# The dots in the identifier are wildcards in a regular expression, and
+	# 'org.kde' would match 'orgXkde'. They are escaped.
+	esc="$(printf '%s' "$1" | sed 's/[].[^$*\\]/\\&/g')"
+	systemctl --user list-units --all --no-legend 'app-*' 2>/dev/null |
+		awk '{print $1}' |
+		grep -qE "^app-(flatpak-)?${esc}(@|-[0-9]+\.scope\$)"
+}
+
+PENDIENTES=""
+for app in $CANDIDATAS; do
+	[ -n "$app" ] || continue
+	if esta_viva "$app"; then
+		echo "$app: was already open"
+	else
+		PENDIENTES="$PENDIENTES $app"
+	fi
+done
+
+PENDIENTES="$(echo $PENDIENTES)"
+[ -n "$PENDIENTES" ] || exit 0
+
+# --- set them up for this batch ----------------------------------------------
+# minimizerule=3 is "Apply initially" and wmclassmatch=1 is ExactMatch. The
+# numbers come from the enums in kwin/src/rules.h, not from intuition.
+TODAS="$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null | tr ',' ' ')"
+for app in $PENDIENTES; do
+	g="$PREFIJO$app"
+	TODAS="$TODAS $g"
+	kwriteconfig6 --file kwinrulesrc --group "$g" --key Description "Always-alive apps: open minimised $app"
+	kwriteconfig6 --file kwinrulesrc --group "$g" --key minimize true
+	kwriteconfig6 --file kwinrulesrc --group "$g" --key minimizerule 3
+	kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclass "$app"
+	kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclasscomplete false
+	kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclassmatch 1
+done
+kwriteconfig6 --file kwinrulesrc --group General --key rules "$(echo $TODAS | tr ' ' ',')"
+kwriteconfig6 --file kwinrulesrc --group General --key count "$(echo $TODAS | wc -w)"
+qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 || true
+
+# --- open them ---------------------------------------------------------------
+# kstart and not the .desktop Exec raw: Mercurygram's is a flatpak
+# command with placeholders (%U, @@u ... @@) that must be interpreted, and also
+# kstart puts the application into its systemd unit, which is where it is later
+# known to be alive.
+for app in $PENDIENTES; do
+	if kstart --application "$app" >/dev/null 2>&1; then
+		echo "$app: opened"
+	else
+		echo "$app: kstart could not open it"
+	fi
+done
+
+# --- wait for them to be in before removing the rules ------------------------
+# The rule has to stay set when the window is created, not when the
+# process is launched. We wait for each to have its unit and then a margin
+# for it to get to map the window.
+espera=0
+while [ "$espera" -lt 30 ]; do
+	faltan=0
+	for app in $PENDIENTES; do
+		esta_viva "$app" || faltan=1
+	done
+	[ "$faltan" -eq 0 ] && break
+	espera=$((espera + 1))
+	sleep 1
+done
+
+# 25 s and not 8. Having the systemd unit is immediate -- kstart creates it --,
+# but the WINDOW takes time, and the rule has to stay set when it is created. With
+# 8 s the dialer started without minimising on a cold boot, which is
+# precisely the slow case: that is why it is on the list.
+sleep 25
