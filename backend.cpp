@@ -8,7 +8,6 @@
 #include <QDBusInterface>
 #include <QDBusReply>
 #include <QDebug>
-#include <QDir>
 #include <QFileInfo>
 #include <QProcess>
 #include <QStandardPaths>
@@ -31,12 +30,17 @@ const QLatin1String rulePrefix{"keepalive-"};
 
 const QLatin1String configFile{"keepaliverc"};
 
-// Opens the applications that were just switched on, minimized. Installed by
-// the 'keepalive' setting, not by this package: the setting is the half that is
-// always present, and the launcher has to work whether or not this module was
-// ever built. The absolute path is deliberate -- a KCM inherits the session's
-// environment, which does not have ~/.local/bin on PATH.
-const QLatin1String launcher{"/.local/bin/keepalive-launch"};
+// Opens the applications that were just switched on, minimized.
+//
+// It used to be looked for under $HOME/.local/bin, where an installer script
+// put it. Since it ships in a package it lives in /usr/bin, and on a phone
+// installed from the image that $HOME path does not exist at all: marking an
+// application simply did nothing, with the reason only in a qWarning nobody
+// reads. Looked up on PATH first -- a KCM does inherit the session's PATH, and
+// /usr/bin is on it -- with the packaged path as the fallback that does not
+// depend on the environment being sane.
+const QLatin1String launcherName{"keepalive-launch"};
+const QLatin1String launcherPath{"/usr/bin/keepalive-launch"};
 
 // How long to wait after the last toggle before writing. Long enough that
 // flipping several switches in a row costs one write and one switcher reload,
@@ -187,10 +191,13 @@ void KeepAliveBackend::launchNewlyKept()
     apps.sort();
     m_toLaunch.clear();
 
-    const QString program = QDir::homePath() + launcher;
-    if (!QFileInfo::exists(program)) {
-        qWarning() << "keepalive: no launcher at" << program
-                   << "-- run the 'keepalive' setting; these stay closed until opened by hand:" << apps;
+    QString program = QStandardPaths::findExecutable(launcherName);
+    if (program.isEmpty() && QFileInfo::exists(launcherPath)) {
+        program = launcherPath;
+    }
+    if (program.isEmpty()) {
+        qWarning() << "keepalive:" << launcherName << "is not installed"
+                   << "-- reinstall the keepalive package; these stay closed until opened by hand:" << apps;
         return;
     }
 

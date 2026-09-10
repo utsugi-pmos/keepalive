@@ -1,11 +1,21 @@
 [Unit]
-Description=Apps siempre vivas: abrirlas al desbloquear, nunca antes
+Description=Always-alive apps: open them on unlock, never before
 PartOf=graphical-session.target
 After=graphical-session.target
+# It gives up instead of hammering forever. These belong in [Unit], not
+# [Service], and the default burst of 5 in 10 s never trips at one restart per
+# 10 s -- which is exactly how a unit that could never work restarted 3601 times
+# in ten hours, all of it in the journal, without anyone noticing.
+StartLimitBurst=3
+StartLimitIntervalSec=120
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/keepalive-wait-for-unlock
+# /usr/libexec, which is where the package puts it. It used to say
+# %h/.local/bin/keepalive-wait-for-unlock, the path an installer script used to
+# write to; on a phone installed from the image nothing is there and the unit
+# failed with 203/EXEC.
+ExecStart=/usr/libexec/utsugi-surya/keepalive-wait-for-unlock
 Restart=on-failure
 RestartSec=10
 
