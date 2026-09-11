@@ -96,7 +96,7 @@ void KeepAliveBackend::configChangedOnDisk()
     KSharedConfig::openConfig(configFile)->reparseConfiguration();
 
     const QSet<QString> kept = readList(QStringLiteral("apps"), defaultApps);
-    const QSet<QString> hidden = readList(QStringLiteral("ocultas"), {});
+    const QSet<QString> hidden = readHidden();
 
     // Compared instead of timed: our own write also fires this, and the signal
     // arrives well after save() has returned, so no flag set around the write
@@ -149,7 +149,7 @@ void KeepAliveBackend::load()
     KSharedConfig::openConfig(configFile)->reparseConfiguration();
 
     m_kept = readList(QStringLiteral("apps"), defaultApps);
-    m_hidden = readList(QStringLiteral("ocultas"), {});
+    m_hidden = readHidden();
     rebuild();
     setDirty(false);
     rearmWatch();
@@ -167,7 +167,8 @@ void KeepAliveBackend::save()
 
     KConfigGroup group(KSharedConfig::openConfig(configFile), QStringLiteral("General"));
     group.writeEntry("apps", kept);
-    group.writeEntry("ocultas", hidden);
+    group.writeEntry("Hidden", hidden);
+    group.deleteEntry("ocultas");
     group.sync();
 
     writeSkipSwitcherRules(hidden);
@@ -306,6 +307,18 @@ QSet<QString> KeepAliveBackend::readList(const QString &key, const QStringList &
 {
     KConfigGroup group(KSharedConfig::openConfig(configFile), QStringLiteral("General"));
     const QStringList list = group.readEntry(key, fallback);
+    return QSet<QString>(list.begin(), list.end());
+}
+
+QSet<QString> KeepAliveBackend::readHidden() const
+{
+    // "Hidden" used to be "ocultas". A phone that was set up before the rename
+    // still has that key in its keepaliverc, and the list is the user's own
+    // choice -- losing it would silently put every hidden app back in the task
+    // switcher. Read the old name when the new one is absent; save() writes the
+    // new one and drops the old, so this converts on the first save.
+    KConfigGroup group(KSharedConfig::openConfig(configFile), QStringLiteral("General"));
+    const QStringList list = group.readEntry("Hidden", group.readEntry("ocultas", QStringList()));
     return QSet<QString>(list.begin(), list.end());
 }
 

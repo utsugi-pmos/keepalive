@@ -61,11 +61,11 @@ busctl --user monitor \
 	--match "type='signal',interface='org.freedesktop.ScreenSaver',member='ActiveChanged'" \
 	--match "type='signal',interface='org.kde.screensaver',member='ActiveChanged'" 2>/dev/null |
 awk '
-	/Member=ActiveChanged/ { visto = 1; next }
-	visto && /BOOLEAN/ {
+	/Member=ActiveChanged/ { seen = 1; next }
+	seen && /BOOLEAN/ {
 		print (index($0, "false") ? "UNLOCK" : "LOCK")
 		fflush()
-		visto = 0
+		seen = 0
 	}
 ' |
 while IFS= read -r event; do

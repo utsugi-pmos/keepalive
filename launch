@@ -44,12 +44,12 @@
 # the spacebar identifier inside and is not spacebar.
 set -eu
 
-LISTA="${XDG_CONFIG_HOME:-$HOME/.config}/keepaliverc"
+LIST="${XDG_CONFIG_HOME:-$HOME/.config}/keepaliverc"
 # The prefix does NOT start with "keepalive-" on purpose: the Preferences module
 # deletes every group starting like that each time it saves, and it would take
 # these rules down while the window has not yet appeared. With a
 # prefix of its own, each cleans up its own.
-PREFIJO="keepalive-startup-"
+PREFIX="keepalive-startup-"
 
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
@@ -61,13 +61,13 @@ done
 # --- wait for KWin -----------------------------------------------------------
 # At session start this runs before the compositor is on the bus, and a
 # rule written then is read by nobody.
-espera=0
-while [ "$espera" -lt 90 ]; do
+waited=0
+while [ "$waited" -lt 90 ]; do
 	qdbus6 org.kde.KWin >/dev/null 2>&1 && break
-	espera=$((espera + 1))
+	waited=$((waited + 1))
 	sleep 1
 done
-if [ "$espera" -ge 90 ]; then
+if [ "$waited" -ge 90 ]; then
 	echo "KWin did not appear in 90 s; opening nothing"
 	exit 0
 fi
@@ -83,13 +83,13 @@ fi
 # The signal that they are done is published by the shell itself, and is the same
 # one the 'margen-barra' setting uses to read them: one object per screen under
 # /Mobile/Panels. Until it appears, nothing is started here.
-espera=0
-while [ "$espera" -lt 90 ]; do
+waited=0
+while [ "$waited" -lt 90 ]; do
 	busctl --user tree org.kde.plasmashell 2>/dev/null | grep -q "/Mobile/Panels/" && break
-	espera=$((espera + 1))
+	waited=$((waited + 1))
 	sleep 1
 done
-if [ "$espera" -ge 90 ]; then
+if [ "$waited" -ge 90 ]; then
 	echo "the desktop did not bring up its bars in 90 s; opening nothing"
 	exit 0
 fi
@@ -108,24 +108,24 @@ sleep 5
 # module writes to this same file, and working on an old copy
 # would erase what it had just written.
 remove_rules() {
-	nuestras=""
-	otras=""
+	ours=""
+	others=""
 	for r in $(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null | tr ',' ' '); do
 		case "$r" in
-			"$PREFIJO"*) nuestras="$nuestras $r" ;;
-			*) otras="$otras $r" ;;
+			"$PREFIX"*) ours="$ours $r" ;;
+			*) others="$others $r" ;;
 		esac
 	done
 
-	[ -n "$(echo $nuestras)" ] || return 0
+	[ -n "$(echo $ours)" ] || return 0
 
-	for g in $nuestras; do
+	for g in $ours; do
 		for k in Description minimize minimizerule wmclass wmclasscomplete wmclassmatch; do
 			kwriteconfig6 --file kwinrulesrc --group "$g" --key "$k" --delete
 		done
 	done
-	kwriteconfig6 --file kwinrulesrc --group General --key rules "$(echo $otras | tr ' ' ',')"
-	kwriteconfig6 --file kwinrulesrc --group General --key count "$(echo $otras | wc -w)"
+	kwriteconfig6 --file kwinrulesrc --group General --key rules "$(echo $others | tr ' ' ',')"
+	kwriteconfig6 --file kwinrulesrc --group General --key count "$(echo $others | wc -w)"
 	qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 || true
 }
 
@@ -134,12 +134,12 @@ remove_rules
 
 # --- what to open ------------------------------------------------------------
 if [ "$#" -gt 0 ]; then
-	CANDIDATAS="$*"
+	CANDIDATES="$*"
 else
-	CANDIDATAS="$(kreadconfig6 --file "$LISTA" --group General --key apps 2>/dev/null | tr ',' ' ')"
+	CANDIDATES="$(kreadconfig6 --file "$LIST" --group General --key apps 2>/dev/null | tr ',' ' ')"
 fi
 
-esta_viva() {
+is_alive() {
 	# The dots in the identifier are wildcards in a regular expression, and
 	# 'org.kde' would match 'orgXkde'. They are escaped.
 	esc="$(printf '%s' "$1" | sed 's/[].[^$*\\]/\\&/g')"
@@ -148,26 +148,26 @@ esta_viva() {
 		grep -qE "^app-(flatpak-)?${esc}(@|-[0-9]+\.scope\$)"
 }
 
-PENDIENTES=""
-for app in $CANDIDATAS; do
+PENDING=""
+for app in $CANDIDATES; do
 	[ -n "$app" ] || continue
-	if esta_viva "$app"; then
+	if is_alive "$app"; then
 		echo "$app: was already open"
 	else
-		PENDIENTES="$PENDIENTES $app"
+		PENDING="$PENDING $app"
 	fi
 done
 
-PENDIENTES="$(echo $PENDIENTES)"
-[ -n "$PENDIENTES" ] || exit 0
+PENDING="$(echo $PENDING)"
+[ -n "$PENDING" ] || exit 0
 
 # --- set them up for this batch ----------------------------------------------
 # minimizerule=3 is "Apply initially" and wmclassmatch=1 is ExactMatch. The
 # numbers come from the enums in kwin/src/rules.h, not from intuition.
-TODAS="$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null | tr ',' ' ')"
-for app in $PENDIENTES; do
-	g="$PREFIJO$app"
-	TODAS="$TODAS $g"
+ALL="$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null | tr ',' ' ')"
+for app in $PENDING; do
+	g="$PREFIX$app"
+	ALL="$ALL $g"
 	kwriteconfig6 --file kwinrulesrc --group "$g" --key Description "Always-alive apps: open minimised $app"
 	kwriteconfig6 --file kwinrulesrc --group "$g" --key minimize true
 	kwriteconfig6 --file kwinrulesrc --group "$g" --key minimizerule 3
@@ -175,8 +175,8 @@ for app in $PENDIENTES; do
 	kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclasscomplete false
 	kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclassmatch 1
 done
-kwriteconfig6 --file kwinrulesrc --group General --key rules "$(echo $TODAS | tr ' ' ',')"
-kwriteconfig6 --file kwinrulesrc --group General --key count "$(echo $TODAS | wc -w)"
+kwriteconfig6 --file kwinrulesrc --group General --key rules "$(echo $ALL | tr ' ' ',')"
+kwriteconfig6 --file kwinrulesrc --group General --key count "$(echo $ALL | wc -w)"
 qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 || true
 
 # --- open them ---------------------------------------------------------------
@@ -184,7 +184,7 @@ qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 || true
 # command with placeholders (%U, @@u ... @@) that must be interpreted, and also
 # kstart puts the application into its systemd unit, which is where it is later
 # known to be alive.
-for app in $PENDIENTES; do
+for app in $PENDING; do
 	if kstart --application "$app" >/dev/null 2>&1; then
 		echo "$app: opened"
 	else
@@ -196,14 +196,14 @@ done
 # The rule has to stay set when the window is created, not when the
 # process is launched. We wait for each to have its unit and then a margin
 # for it to get to map the window.
-espera=0
-while [ "$espera" -lt 30 ]; do
-	faltan=0
-	for app in $PENDIENTES; do
-		esta_viva "$app" || faltan=1
+waited=0
+while [ "$waited" -lt 30 ]; do
+	missing=0
+	for app in $PENDING; do
+		is_alive "$app" || missing=1
 	done
-	[ "$faltan" -eq 0 ] && break
-	espera=$((espera + 1))
+	[ "$missing" -eq 0 ] && break
+	waited=$((waited + 1))
 	sleep 1
 done
 
