@@ -62,6 +62,7 @@ Q_SIGNALS:
 
 private:
     QSet<QString> readList(const QString &key, const QStringList &fallback) const;
+    QSet<QString> readHidden() const;
     void writeSkipSwitcherRules(const QStringList &hidden);
     void reloadTaskSwitcher();
     void rebuild();
