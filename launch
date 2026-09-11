@@ -107,7 +107,7 @@ sleep 5
 # 'rules' is re-read in here instead of being saved at the start: the Preferences
 # module writes to this same file, and working on an old copy
 # would erase what it had just written.
-quitar_reglas() {
+remove_rules() {
 	nuestras=""
 	otras=""
 	for r in $(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null | tr ',' ' '); do
@@ -129,8 +129,8 @@ quitar_reglas() {
 	qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 || true
 }
 
-trap quitar_reglas EXIT INT TERM
-quitar_reglas
+trap remove_rules EXIT INT TERM
+remove_rules
 
 # --- what to open ------------------------------------------------------------
 if [ "$#" -gt 0 ]; then

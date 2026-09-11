@@ -12,7 +12,7 @@
 # Both link the same backend.cpp and show the same AppList.qml, so they cannot
 # drift apart: there is one implementation and two frames around it.
 cmake_minimum_required(VERSION 3.20)
-project(keepalive VERSION 1.0)
+project(keepalive VERSION 1.2)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
