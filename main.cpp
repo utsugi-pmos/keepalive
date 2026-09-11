@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
     KLocalizedString::setApplicationDomain(QByteArrayLiteral("keepalive"));
 
     KAboutData about(QStringLiteral("keepalive"),
-                     i18n("Apps siempre vivas"),
+                     i18n("Always-alive apps"),
                      QStringLiteral("1.0"),
                      i18n("Choose which applications do not close when you swipe their card"),
                      KAboutLicense::GPL_V2);

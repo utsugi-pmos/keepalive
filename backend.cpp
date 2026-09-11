@@ -343,7 +343,7 @@ void KeepAliveBackend::writeSkipSwitcherRules(const QStringList &hidden)
         // Built with arg() rather than '+': with QStringBuilder enabled the
         // concatenation is a QStringBuilder, not a QString, and
         // KConfigGroup::writeEntry() refuses it at compile time.
-        const QString description = QStringLiteral("Apps siempre vivas: ocultar %1").arg(appId);
+        const QString description = QStringLiteral("Always-alive apps: hide %1").arg(appId);
 
         KConfigGroup rule(rules, name);
         rule.writeEntry("Description", description);
