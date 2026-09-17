@@ -7,7 +7,7 @@
             "handset",
             "tablet"
         ],
-        "Icon": "preferences-system-windows",
+        "Icon": "window-pin-symbolic",
         "License": "GPL-2.0-or-later",
         "Name": "Always-alive apps",
         "Name[es]": "Apps siempre vivas",
