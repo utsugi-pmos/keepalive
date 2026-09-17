@@ -28,13 +28,23 @@ ListView {
     // The cost is real and easy to forget once the switches are flipped, so it
     // is stated up front rather than buried in a tooltip. The figure is
     // measured (PSS of dialer + messages), not guessed.
+    //
+    // Its height is only known once the text has wrapped at the final width,
+    // which is after ListView has placed the list under a shorter header: the
+    // page opened with the message's first line hidden under the frame's header,
+    // on every open, seen on the phone. So until the person scrolls, the view is
+    // put back at the beginning whenever the header's height settles.
     header: Kirigami.InlineMessage {
         width: appList.width
         visible: true
         position: Kirigami.InlineMessage.Position.Header
         type: Kirigami.MessageType.Information
         text: i18n("These applications do not close when you swipe their card up: they minimise, so they reopen instantly. In exchange they stay in memory (the dialer and messages take about 125 MB between them).")
+        onHeightChanged: if (!appList.scrolledByHand) Qt.callLater(appList.positionViewAtBeginning)
     }
+
+    property bool scrolledByHand: false
+    onMovementStarted: scrolledByHand = true
 
     // Switching an app on moves its row up into the other group. Scrolled to,
     // because a row that vanishes from where you tapped it reads as a setting
